@@ -28,6 +28,9 @@
   /* memory mapping and allocation includes and definitions */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#if HIYUI_DIAGNOSTICS
+#include <hiyui/misc/detail/diagnostics_memory.h>
+#endif
 
 
   /**************************************************************************
@@ -68,7 +71,12 @@
   ft_alloc( FT_Memory  memory,
             long       size )
   {
-    return HeapAlloc( memory->user, 0, size );
+    void* block = HeapAlloc( memory->user, 0, size );
+#if HIYUI_DIAGNOSTICS
+    if ( block )
+      hiyui_memory_set( HIYUI_MEMORY_FONT_HEAP, memory, (uintptr_t)block, (uint64_t)size );
+#endif
+    return block;
   }
 
 
@@ -102,9 +110,17 @@
               long       new_size,
               void*      block )
   {
+    void* resized;
+#if HIYUI_DIAGNOSTICS
+    uintptr_t previous = (uintptr_t)block;
+#endif
     FT_UNUSED( cur_size );
-
-    return HeapReAlloc( memory->user, 0, block, new_size );
+    resized = HeapReAlloc( memory->user, 0, block, new_size );
+#if HIYUI_DIAGNOSTICS
+    if ( resized )
+      hiyui_memory_resize( HIYUI_MEMORY_FONT_HEAP, memory, previous, (uintptr_t)resized, (uint64_t)new_size );
+#endif
+    return resized;
   }
 
 
@@ -127,6 +143,9 @@
   ft_free( FT_Memory  memory,
            void*      block )
   {
+#if HIYUI_DIAGNOSTICS
+    hiyui_memory_remove( HIYUI_MEMORY_FONT_HEAP, memory, (uintptr_t)block );
+#endif
     HeapFree( memory->user, 0, block );
   }
 
@@ -166,6 +185,9 @@
   FT_CALLBACK_DEF( void )
   ft_close_stream_by_munmap( FT_Stream  stream )
   {
+#if HIYUI_DIAGNOSTICS
+    hiyui_memory_remove( HIYUI_MEMORY_FONT_MAPPED, stream, 0 );
+#endif
     UnmapViewOfFile( (LPCVOID)stream->descriptor.pointer );
 
     stream->descriptor.pointer = NULL;
@@ -377,7 +399,12 @@
     CloseHandle( fm );
 
     if ( stream->base != NULL )
+    {
       stream->close = ft_close_stream_by_munmap;
+#if HIYUI_DIAGNOSTICS
+      hiyui_memory_set( HIYUI_MEMORY_FONT_MAPPED, stream, 0, stream->size );
+#endif
+    }
     else
     {
       DWORD  total_read_count;
@@ -475,6 +502,9 @@
       memory->alloc   = ft_alloc;
       memory->realloc = ft_realloc;
       memory->free    = ft_free;
+#if HIYUI_DIAGNOSTICS
+      hiyui_memory_set( HIYUI_MEMORY_FONT_HEAP, memory, (uintptr_t)memory, sizeof ( *memory ) );
+#endif
 #ifdef FT_DEBUG_MEMORY
       ft_mem_debug_init( memory );
 #endif
